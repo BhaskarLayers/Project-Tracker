@@ -51,6 +51,12 @@ const App: React.FC = () => {
       'Content-Type': 'application/json',
     };
 
+    const getShareUrl = (id: string) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('w', id);
+      return url.toString();
+    };
+
     const getWorkspaceId = () => {
       const url = new URL(window.location.href);
       const fromQuery = url.searchParams.get('w');
@@ -136,6 +142,23 @@ const App: React.FC = () => {
     let suppressSave = false;
     let lastSaved = '';
     let saveTimer: number | null = null;
+
+    const saveNow = async (reason: string) => {
+      try {
+        const data = exportStoreState();
+        const json = JSON.stringify(data);
+        lastSaved = json;
+        await upsertWorkspace(workspaceId, data);
+        setCloud({ lastSyncAt: new Date().toISOString(), lastError: null, phase: `saved:${reason}` });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(e);
+        setCloud({ lastError: msg, phase: `save-error:${reason}` });
+      }
+    };
+
+    (window as any).__SL_SYNC_NOW = () => saveNow('manual');
+    (window as any).__SL_SHARE_URL = () => getShareUrl(workspaceId);
 
     const scheduleSave = () => {
       if (suppressSave) return;

@@ -203,6 +203,36 @@ const Header: React.FC = () => {
               <span className="tabular-nums text-slate-700">{stats.overallPendingPct}%</span>
             </div>
           </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 rounded-md border border-gray-200"
+              onClick={async () => {
+                const fn = (window as any).__SL_SYNC_NOW;
+                if (typeof fn === 'function') await fn();
+              }}
+              title="Push current data to cloud now"
+            >
+              <Cloud className="w-4 h-4 text-gray-400" />
+              Sync
+            </button>
+            <button
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-gray-700 hover:bg-gray-50 rounded-md border border-gray-200"
+              onClick={async () => {
+                const getUrl = (window as any).__SL_SHARE_URL;
+                const shareUrl = typeof getUrl === 'function' ? String(getUrl()) : window.location.href;
+                try {
+                  await navigator.clipboard.writeText(shareUrl);
+                } catch {
+                  window.prompt('Copy link:', shareUrl);
+                }
+              }}
+              title="Copy share link (includes workspace id)"
+            >
+              <Copy className="w-4 h-4 text-gray-400" />
+              Link
+            </button>
+          </div>
         </div>
       </header>
 
