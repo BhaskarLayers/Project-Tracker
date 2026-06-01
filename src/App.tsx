@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import GanttChart from './components/gantt/GanttChart';
@@ -9,6 +9,9 @@ import { GANTT_HEADER_HEIGHT_PX, GANTT_SUMMARY_BAR_HEIGHT_PX, GANTT_TASK_BAR_HEI
 
 const App: React.FC = () => {
   const { setActiveProject, projects, addPhase, addTask, activeView } = useProjectStore();
+  const didInitSyncRef = useRef(false);
+  const didResolveRemoteStateRef = useRef(false);
+  const hasSupabaseSyncRef = useRef(false);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -19,6 +22,174 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (didInitSyncRef.current) return;
+    didInitSyncRef.current = true;
+
+    const env: any = (import.meta as any).env ?? {};
+    const SUPABASE_URL: string | undefined = env.VITE_SUPABASE_URL;
+    const SUPABASE_ANON_KEY: string | undefined = env.VITE_SUPABASE_ANON_KEY;
+    const setCloud = (patch: any) => {
+      const w: any = window as any;
+      const prev = w.__SL_CLOUD ?? {};
+      w.__SL_CLOUD = { ...prev, ...patch };
+      window.dispatchEvent(new CustomEvent('sl-cloud', { detail: w.__SL_CLOUD }));
+    };
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setCloud({ enabled: false, reason: 'missing-env' });
+      return;
+    }
+    hasSupabaseSyncRef.current = true;
+
+    const base = SUPABASE_URL.replace(/\/+$/, '');
+    const workspaceTableUrl = `${base}/rest/v1/workspaces`;
+    const localStorageKey = 'sarkar-launch-workspace-id';
+
+    const headers = {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    };
+
+    const getWorkspaceId = () => {
+      const url = new URL(window.location.href);
+      const fromQuery = url.searchParams.get('w');
+      if (fromQuery && fromQuery.trim()) return fromQuery.trim();
+      const fromLocal = window.localStorage.getItem(localStorageKey);
+      if (fromLocal && fromLocal.trim()) return fromLocal.trim();
+      const id = (crypto as any).randomUUID ? (crypto as any).randomUUID() : `w_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      return id;
+    };
+
+    const setWorkspaceId = (id: string) => {
+      window.localStorage.setItem(localStorageKey, id);
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('w') !== id) {
+        url.searchParams.set('w', id);
+        window.history.replaceState({}, '', url.toString());
+      }
+    };
+
+    const exportStoreState = () => {
+      const s: any = useProjectStore.getState();
+      return {
+        projects: s.projects,
+        phases: s.phases,
+        tasks: s.tasks,
+        activeProjectId: s.activeProjectId,
+        activeView: s.activeView,
+        expandedTasks: s.expandedTasks,
+      };
+    };
+
+    const applyStoreState = (data: any) => {
+      if (!data || typeof data !== 'object') return;
+      const next: any = {};
+      if (data.projects && typeof data.projects === 'object') next.projects = data.projects;
+      if (data.phases && typeof data.phases === 'object') next.phases = data.phases;
+      if (data.tasks && typeof data.tasks === 'object') next.tasks = data.tasks;
+      if (typeof data.activeProjectId === 'string' || data.activeProjectId === null) next.activeProjectId = data.activeProjectId;
+      if (typeof data.activeView === 'string') next.activeView = data.activeView;
+      if (data.expandedTasks && typeof data.expandedTasks === 'object') next.expandedTasks = data.expandedTasks;
+      useProjectStore.setState(next, false);
+    };
+
+    const fetchWorkspace = async (id: string) => {
+      const url = `${workspaceTableUrl}?id=eq.${encodeURIComponent(id)}&select=data`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null;
+      const json = await res.json();
+      if (!Array.isArray(json) || json.length === 0) return null;
+      return json[0]?.data ?? null;
+    };
+
+    const upsertWorkspace = async (id: string, data: any) => {
+      const body = JSON.stringify([{ id, data, updated_at: new Date().toISOString() }]);
+      const res = await fetch(workspaceTableUrl, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          Prefer: 'resolution=merge-duplicates,return=representation',
+        },
+        body,
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Supabase upsert failed: ${res.status} ${txt}`);
+      }
+    };
+
+    const patchWorkspace = async (id: string, data: any) => {
+      const url = `${workspaceTableUrl}?id=eq.${encodeURIComponent(id)}`;
+      const body = JSON.stringify({ data, updated_at: new Date().toISOString() });
+      const res = await fetch(url, { method: 'PATCH', headers, body });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Supabase patch failed: ${res.status} ${txt}`);
+      }
+    };
+
+    let workspaceId = getWorkspaceId();
+    setWorkspaceId(workspaceId);
+    setCloud({ enabled: true, workspaceId, lastError: null, lastSyncAt: null, phase: 'init' });
+
+    let suppressSave = false;
+    let lastSaved = '';
+    let saveTimer: number | null = null;
+
+    const scheduleSave = () => {
+      if (suppressSave) return;
+      if (saveTimer) window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(async () => {
+        saveTimer = null;
+        try {
+          const data = exportStoreState();
+          const json = JSON.stringify(data);
+          if (json === lastSaved) return;
+          lastSaved = json;
+          await patchWorkspace(workspaceId, data);
+          setCloud({ lastSyncAt: new Date().toISOString(), lastError: null, phase: 'saved' });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(e);
+          setCloud({ lastError: msg, phase: 'save-error' });
+        }
+      }, 900);
+    };
+
+    (async () => {
+      try {
+        setCloud({ phase: 'loading' });
+        const remote = await fetchWorkspace(workspaceId);
+        if (remote) {
+          suppressSave = true;
+          applyStoreState(remote);
+          suppressSave = false;
+          lastSaved = JSON.stringify(exportStoreState());
+          setCloud({ lastSyncAt: new Date().toISOString(), lastError: null, phase: 'loaded' });
+        } else {
+          await upsertWorkspace(workspaceId, exportStoreState());
+          lastSaved = JSON.stringify(exportStoreState());
+          setCloud({ lastSyncAt: new Date().toISOString(), lastError: null, phase: 'created' });
+        }
+        didResolveRemoteStateRef.current = true;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(e);
+        setCloud({ lastError: msg, phase: 'load-error' });
+        didResolveRemoteStateRef.current = true;
+      }
+    })();
+
+    const unsub = useProjectStore.subscribe(() => scheduleSave());
+    return () => {
+      unsub();
+      if (saveTimer) window.clearTimeout(saveTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hasSupabaseSyncRef.current && !didResolveRemoteStateRef.current) return;
     // Seed sample data from spreadsheet screenshot if none exists
     if (Object.keys(projects).length === 0) {
       const sampleProjectId = 'proj_001';

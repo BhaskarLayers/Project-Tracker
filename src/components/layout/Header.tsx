@@ -48,6 +48,13 @@ const Header: React.FC = () => {
     return () => window.clearInterval(id);
   }, []);
 
+  const [cloud, setCloud] = useState<any>(() => (window as any).__SL_CLOUD ?? null);
+  useEffect(() => {
+    const handler = (e: any) => setCloud(e.detail);
+    window.addEventListener('sl-cloud', handler as any);
+    return () => window.removeEventListener('sl-cloud', handler as any);
+  }, []);
+
   const parseEndOfDayMs = (isoDate: string | undefined): number | null => {
     if (!isoDate) return null;
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
@@ -165,6 +172,21 @@ const Header: React.FC = () => {
             <div className="flex flex-col items-end">
               <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Remaining</div>
               <div className="text-[22px] font-extrabold text-slate-900 tabular-nums leading-none">{stats.countdown}</div>
+              <div
+                className={cn(
+                  'mt-0.5 text-[10px] font-bold uppercase tracking-wide',
+                  cloud?.enabled === false ? 'text-red-500' : cloud?.lastError ? 'text-red-500' : 'text-gray-400'
+                )}
+                title={cloud?.lastError ? String(cloud.lastError) : undefined}
+              >
+                {cloud?.enabled === false
+                  ? 'Cloud off'
+                  : cloud?.lastError
+                    ? 'Cloud error'
+                    : cloud?.enabled
+                      ? 'Cloud on'
+                      : 'Cloud'}
+              </div>
             </div>
           </div>
 
