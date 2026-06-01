@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #F5F6F8;
+    color: #1a1a1a;
+  }
+
+  :root {
+    --gantt-row-height: 44px;
+    --gantt-header-height: 38px;
+    --gantt-task-bar-height: 15px;
+    --gantt-summary-bar-height: 7px;
+  }
+}
+
+/* Custom Gantt Styles to match reference UI */
+.gantt .grid-header {
+  fill: #ffffff;
+  stroke: rgba(15, 23, 42, 0.05);
+}
+
+.gantt .grid-row {
+  fill: #ffffff;
+}
+
+.gantt .grid-row:nth-child(even) {
+  fill: #fcfcfd;
+}
+
+.gantt .row-line {
+  stroke: rgba(15, 23, 42, 0.04);
+  stroke-width: 1;
+}
+
+.gantt .tick {
+  stroke: rgba(15, 23, 42, 0.04);
+  stroke-width: 1;
+}
+
+.gantt .today-highlight {
+  fill: rgba(245,158,11,0.06);
+  opacity: 1;
+}
+
+/* Timeline text styling */
+.gantt .lower-text {
+  fill: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.gantt .upper-text {
+  fill: #111827;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gantt[data-view-mode='Day'] .lower-text {
+  fill: #9ca3af;
+  font-size: 10px;
+}
+
+.gantt[data-view-mode='Month'] .lower-text {
+  fill: #9ca3af;
+  font-size: 10px;
+}
+
+/* Task bar styling - Reference match */
+.gantt .bar-wrapper .bar {
+  stroke-width: 0;
+  opacity: 0.9;
+}
+
+.gantt .bar-wrapper .bar-progress {
+  fill: rgba(0, 0, 0, 0.08);
+}
+
+.gantt .bar-wrapper .bar-label {
+  fill: #111827;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* Hide handles to match flat look */
+.gantt .handle {
+  fill: transparent;
+}
+
+.gantt .arrow {
+  stroke: #94a3b8;
+  stroke-width: 1.2;
+}
+
+/* Today marker - Reference match */
+.gantt .today-line {
+  stroke: #f59e0b;
+  stroke-width: 2;
+  stroke-dasharray: 0;
+}
+
+.gantt .timeline-band-a {
+  fill: #fafafa;
+}
+
+.gantt .timeline-band-b {
+  fill: #f6f6f6;
+}
+
+.sidebar-scroll-container,
+.gantt-container {
+  overscroll-behavior: none;
+}
