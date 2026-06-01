@@ -60,7 +60,13 @@ const App: React.FC = () => {
     const getWorkspaceId = () => {
       const url = new URL(window.location.href);
       const fromQuery = url.searchParams.get('w');
-      if (fromQuery && fromQuery.trim()) return fromQuery.trim();
+      if (fromQuery && fromQuery.trim()) {
+        const id = fromQuery.trim();
+        window.localStorage.setItem(localStorageKey, id);
+        url.searchParams.delete('w');
+        window.history.replaceState({}, '', url.toString());
+        return id;
+      }
       const fromLocal = window.localStorage.getItem(localStorageKey);
       if (fromLocal && fromLocal.trim()) return fromLocal.trim();
       const id = (crypto as any).randomUUID ? (crypto as any).randomUUID() : `w_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -69,11 +75,6 @@ const App: React.FC = () => {
 
     const setWorkspaceId = (id: string) => {
       window.localStorage.setItem(localStorageKey, id);
-      const url = new URL(window.location.href);
-      if (url.searchParams.get('w') !== id) {
-        url.searchParams.set('w', id);
-        window.history.replaceState({}, '', url.toString());
-      }
     };
 
     const exportStoreState = () => {
