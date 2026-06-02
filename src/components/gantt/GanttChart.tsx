@@ -432,10 +432,18 @@ const GanttChart: React.FC = () => {
       const translateBodyLayersUp = () => {
         const shiftY = -(HEADER_HEIGHT + TASK_ROW_PADDING_PX / 2);
         const applyShift = (g: SVGGElement) => {
-          const base = g.getAttribute('data-base-transform') ?? g.getAttribute('transform') ?? '';
-          if (!g.hasAttribute('data-base-transform')) g.setAttribute('data-base-transform', base);
+          const existing = g.getAttribute('transform') ?? '';
+          const alreadyInjected = g.getAttribute('data-sl-shift-injected') === '1';
+
+          let base = g.getAttribute('data-sl-base-transform');
+          if (!base) {
+            base = alreadyInjected ? existing.replace(/^translate\(0,\s*[-0-9.]+\)\s*/i, '') : existing;
+            g.setAttribute('data-sl-base-transform', base);
+          }
+
           const next = `translate(0, ${shiftY})${base ? ` ${base}` : ''}`.trim();
           g.setAttribute('transform', next);
+          g.setAttribute('data-sl-shift-injected', '1');
         };
 
         const isHeaderGroup = (g: SVGGElement) =>
