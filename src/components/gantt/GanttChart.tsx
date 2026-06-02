@@ -1081,7 +1081,7 @@ const GanttChart: React.FC = () => {
         pointer-events: none !important;
       }
       .gantt-summary .bar-label {
-        fill: #0f172a;
+        fill: #ffffff;
         font-weight: 700;
         font-size: 11px;
         text-anchor: middle;
