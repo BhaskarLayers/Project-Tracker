@@ -862,6 +862,44 @@ const GanttChart: React.FC = () => {
       });
     };
 
+    const ensureBarsVisible = () => {
+      if (!ganttRef.current) return;
+      const svg = ganttRef.current.querySelector('svg') as SVGSVGElement | null;
+      if (!svg) return;
+
+      const bars = Array.from(svg.querySelectorAll<SVGGraphicsElement>('.bar-wrapper:not(.gantt-dummy-row) .bar'));
+      if (bars.length === 0) return;
+
+      const anyVisible = bars.some((b) => {
+        const rect = b as any;
+        const w = Number(rect.getAttribute?.('width') ?? 0);
+        const h = Number(rect.getAttribute?.('height') ?? 0);
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return false;
+        const cs = window.getComputedStyle(rect);
+        const opacity = Number(cs.opacity ?? '1');
+        if (Number.isFinite(opacity) && opacity <= 0) return false;
+        const fill = cs.fill ?? '';
+        if (fill === 'none' || fill === 'transparent') return false;
+        return true;
+      });
+
+      if (anyVisible) return;
+
+      const mainSvg = svg;
+      const directChildren = Array.from(mainSvg.children).filter(
+        (el): el is SVGGElement => (el as any).tagName?.toLowerCase?.() === 'g'
+      );
+      directChildren.forEach((g) => {
+        const base = g.getAttribute('data-sl-base-transform');
+        if (base !== null) {
+          g.setAttribute('transform', base);
+        } else {
+          g.removeAttribute('transform');
+        }
+        g.removeAttribute('data-sl-shift-injected');
+      });
+    };
+
     try {
       const shouldRecreate = !!ganttInstance.current && lastTaskIdsHashRef.current !== nextTaskIdsHash;
 
@@ -963,6 +1001,7 @@ const GanttChart: React.FC = () => {
         decorateSummaryBars();
         decorateMilestones();
         decorateTaskLabels();
+        ensureBarsVisible();
 
         const svg = ganttRef.current?.querySelector('svg') as SVGSVGElement | null;
         if (svg) {
