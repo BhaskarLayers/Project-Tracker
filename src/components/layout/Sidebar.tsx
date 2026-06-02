@@ -12,7 +12,8 @@ import {
   ChevronLeft,
   Search,
   MinusSquare,
-  PlusSquare
+  PlusSquare,
+  Trash2
 } from 'lucide-react';
 import { useProjectStore } from '../../store/useProjectStore';
 import { Task, Phase } from '../../types/project';
@@ -37,6 +38,7 @@ const Sidebar: React.FC = () => {
     addTask, 
     addPhase, 
     updateTask,
+    deletePhase,
     expandedTasks,
     toggleExpandTask,
     setAllExpanded
@@ -458,14 +460,26 @@ const Sidebar: React.FC = () => {
                       </div>
                     }
                     name={
-                      <input
-                        type="text"
-                        value={phase.name}
-                        onChange={(e) => updatePhase(phaseId, { name: e.target.value })}
-                        onClick={(e) => e.stopPropagation()}
-                        className="w-full font-extrabold text-[14px] leading-none text-slate-900 bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded px-1.5 py-0.5 outline-none tracking-tight"
-                        placeholder="Section name..."
-                      />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="text"
+                          value={phase.name}
+                          onChange={(e) => updatePhase(phaseId, { name: e.target.value })}
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex-1 min-w-0 font-extrabold text-[14px] leading-none text-slate-900 bg-transparent border-none focus:ring-1 focus:ring-blue-500 rounded px-1.5 py-0.5 outline-none tracking-tight"
+                          placeholder="Section name..."
+                        />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Delete section "${phase.name}"?`)) deletePhase(phaseId);
+                          }}
+                          className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-600"
+                          title="Delete section"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     }
                     duration={summaryDuration ? `${summaryDuration}d` : '-'}
                     start={formatShortDate(summaryStart)}

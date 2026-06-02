@@ -449,8 +449,9 @@ const GanttChart: React.FC = () => {
         const isHeaderGroup = (g: SVGGElement) =>
           g.classList.contains('date') || g.classList.contains('upper-header') || g.classList.contains('lower-header');
 
-        const topLevelGroups = Array.from(mainSvg.querySelectorAll<SVGGElement>(':scope > g'));
-        const candidates = (topLevelGroups.length > 0 ? topLevelGroups : Array.from(mainSvg.querySelectorAll<SVGGElement>('g')))
+        const directChildren = Array.from(mainSvg.children)
+          .filter((el): el is SVGGElement => (el as any).tagName?.toLowerCase?.() === 'g');
+        const candidates = (directChildren.length > 0 ? directChildren : Array.from(mainSvg.querySelectorAll<SVGGElement>('g')))
           .filter((g) => !isHeaderGroup(g));
 
         candidates.forEach(applyShift);
