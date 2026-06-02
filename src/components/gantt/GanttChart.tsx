@@ -417,13 +417,15 @@ const GanttChart: React.FC = () => {
         if (!Number.isFinite(bbox.y) || !Number.isFinite(bbox.height) || bbox.height <= 0) return;
 
         if (bbox.height <= available) {
-          const ty = paddingTop - bbox.y;
+          const targetY = paddingTop + (available - bbox.height) / 2;
+          const ty = targetY - bbox.y;
           headerContent.setAttribute('transform', `translate(0, ${ty})`);
           return;
         }
 
         const scaleY = available / bbox.height;
-        const ty = paddingTop - bbox.y * scaleY;
+        const targetY = paddingTop;
+        const ty = targetY - bbox.y * scaleY;
         headerContent.setAttribute('transform', `translate(0, ${ty}) scale(1, ${scaleY})`);
       };
 
