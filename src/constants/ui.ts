@@ -1,7 +1,7 @@
 export const ROW_HEIGHT_PX = 44;
 export const GANTT_HEADER_HEIGHT_PX = 44;
 export const GANTT_TASK_BAR_HEIGHT_PX = 12;
-export const GANTT_SUMMARY_BAR_HEIGHT_PX = 12;
+export const GANTT_SUMMARY_BAR_HEIGHT_PX = 18;
 
 export const SIDEBAR_COL_CONTROL_PX = 40;
 export const SIDEBAR_COL_NAME_MIN_PX = 160;

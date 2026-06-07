@@ -28,6 +28,10 @@ const GanttChart: React.FC = () => {
   const headerMutationObserverRef = useRef<MutationObserver | null>(null);
   const headerSyncRafRef = useRef<number | null>(null);
   const headerRetryCountRef = useRef(0);
+  const hoverInfoByIdRef = useRef<Map<string, { start: string; end: string }> | null>(null);
+  const hoverListenersCleanupRef = useRef<(() => void) | null>(null);
+  const lastHoverIdRef = useRef<string | null>(null);
+  const [hoverBarTooltip, setHoverBarTooltip] = useState<{ left: number; top: number; text: string } | null>(null);
   
   const { activeProjectId, projects, phases, tasks, updateTask, expandedTasks } = useProjectStore();
   const project = activeProjectId ? projects[activeProjectId] : null;
@@ -142,6 +146,10 @@ const GanttChart: React.FC = () => {
       barMutationObserverRef.current = null;
       headerMutationObserverRef.current?.disconnect();
       headerMutationObserverRef.current = null;
+      hoverListenersCleanupRef.current?.();
+      hoverListenersCleanupRef.current = null;
+      lastHoverIdRef.current = null;
+      setHoverBarTooltip(null);
       if (headerSyncRafRef.current) {
         window.cancelAnimationFrame(headerSyncRafRef.current);
         headerSyncRafRef.current = null;
@@ -328,6 +336,59 @@ const GanttChart: React.FC = () => {
     const prevScrollTop = getTimelineScrollEl()?.scrollTop ?? 0;
     const prevInnerScrollLeft = ganttInnerScrollRef.current?.scrollLeft ?? 0;
 
+    const formatHoverDate = (iso: string) => {
+      const t = Date.parse(iso);
+      if (!Number.isFinite(t)) return iso;
+      const d = new Date(t);
+      return new Intl.DateTimeFormat(undefined, { month: 'short', day: '2-digit' }).format(d);
+    };
+
+    const parseTranslateY = (transform: string | null): number | null => {
+      if (!transform) return null;
+      const m = transform.match(/translate\(\s*[-0-9.]+\s*[,\s]\s*([-0-9.]+)\s*\)/i);
+      if (!m) return null;
+      const y = Number(m[1]);
+      return Number.isFinite(y) ? y : null;
+    };
+
+    const applyBodyShift = (mainSvg: SVGSVGElement) => {
+      const defaultShiftY = -(HEADER_HEIGHT + TASK_ROW_PADDING_PX / 2);
+      let shiftY = defaultShiftY;
+
+      const firstWrapper =
+        mainSvg.querySelector<SVGGElement>('.bar-wrapper:not(.gantt-dummy-row)') ??
+        mainSvg.querySelector<SVGGElement>('.bar-wrapper');
+      const firstWrapperY = parseTranslateY(firstWrapper?.getAttribute('transform') ?? null);
+      if (firstWrapperY !== null) shiftY = -firstWrapperY;
+
+      const isHeaderGroup = (g: SVGGElement) =>
+        g.classList.contains('date') || g.classList.contains('upper-header') || g.classList.contains('lower-header');
+
+      const directChildren = Array.from(mainSvg.children).filter(
+        (el): el is SVGGElement => (el as any).tagName?.toLowerCase?.() === 'g'
+      );
+      const candidates = (directChildren.length > 0 ? directChildren : Array.from(mainSvg.querySelectorAll<SVGGElement>('g')))
+        .filter((g) => !isHeaderGroup(g))
+        .filter((g) => !g.classList.contains('bar-wrapper'));
+
+      const applyShift = (g: SVGGElement) => {
+        const existing = g.getAttribute('transform') ?? '';
+        const alreadyInjected = g.getAttribute('data-sl-shift-injected') === '1';
+
+        let base = g.getAttribute('data-sl-base-transform');
+        if (!base) {
+          base = alreadyInjected ? existing.replace(/^translate\(0,\s*[-0-9.]+\)\s*/i, '') : existing;
+          g.setAttribute('data-sl-base-transform', base);
+        }
+
+        const next = `translate(0, ${shiftY})${base ? ` ${base}` : ''}`.trim();
+        g.setAttribute('transform', next);
+        g.setAttribute('data-sl-shift-injected', '1');
+      };
+
+      candidates.forEach(applyShift);
+    };
+
     const rebuildStickyHeader = () => {
       if (!ganttRef.current || !ganttHeaderRef.current || !ganttBodyScrollRef.current) return;
 
@@ -336,6 +397,8 @@ const GanttChart: React.FC = () => {
 
       mainSvg.style.display = 'block';
       mainSvg.style.marginTop = '0px';
+
+      applyBodyShift(mainSvg);
 
       const headerGroups = Array.from(mainSvg.querySelectorAll<SVGGElement>('g.date, g.upper-header, g.lower-header'));
       const hasHeaderText = headerGroups.some((g) => g.querySelector('text'));
@@ -428,36 +491,6 @@ const GanttChart: React.FC = () => {
         const ty = targetY - bbox.y * scaleY;
         headerContent.setAttribute('transform', `translate(0, ${ty}) scale(1, ${scaleY})`);
       };
-
-      const translateBodyLayersUp = () => {
-        const shiftY = -(HEADER_HEIGHT + TASK_ROW_PADDING_PX / 2);
-        const applyShift = (g: SVGGElement) => {
-          const existing = g.getAttribute('transform') ?? '';
-          const alreadyInjected = g.getAttribute('data-sl-shift-injected') === '1';
-
-          let base = g.getAttribute('data-sl-base-transform');
-          if (!base) {
-            base = alreadyInjected ? existing.replace(/^translate\(0,\s*[-0-9.]+\)\s*/i, '') : existing;
-            g.setAttribute('data-sl-base-transform', base);
-          }
-
-          const next = `translate(0, ${shiftY})${base ? ` ${base}` : ''}`.trim();
-          g.setAttribute('transform', next);
-          g.setAttribute('data-sl-shift-injected', '1');
-        };
-
-        const isHeaderGroup = (g: SVGGElement) =>
-          g.classList.contains('date') || g.classList.contains('upper-header') || g.classList.contains('lower-header');
-
-        const directChildren = Array.from(mainSvg.children)
-          .filter((el): el is SVGGElement => (el as any).tagName?.toLowerCase?.() === 'g');
-        const candidates = (directChildren.length > 0 ? directChildren : Array.from(mainSvg.querySelectorAll<SVGGElement>('g')))
-          .filter((g) => !isHeaderGroup(g));
-
-        candidates.forEach(applyShift);
-      };
-
-      translateBodyLayersUp();
 
       const scrollLeft = ganttInnerScrollRef.current?.scrollLeft ?? 0;
       headerSvg.style.transform = `translateX(${-scrollLeft}px)`;
@@ -862,42 +895,102 @@ const GanttChart: React.FC = () => {
       });
     };
 
-    const ensureBarsVisible = () => {
+    const decorateHoverDates = () => {
       if (!ganttRef.current) return;
-      const svg = ganttRef.current.querySelector('svg') as SVGSVGElement | null;
+      const svg = ganttRef.current.querySelector('svg');
       if (!svg) return;
 
-      const bars = Array.from(svg.querySelectorAll<SVGGraphicsElement>('.bar-wrapper:not(.gantt-dummy-row) .bar'));
-      if (bars.length === 0) return;
-
-      const anyVisible = bars.some((b) => {
-        const rect = b as any;
-        const w = Number(rect.getAttribute?.('width') ?? 0);
-        const h = Number(rect.getAttribute?.('height') ?? 0);
-        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return false;
-        const cs = window.getComputedStyle(rect);
-        const opacity = Number(cs.opacity ?? '1');
-        if (Number.isFinite(opacity) && opacity <= 0) return false;
-        const fill = cs.fill ?? '';
-        if (fill === 'none' || fill === 'transparent') return false;
-        return true;
+      const infoById = new Map<string, { start: string; end: string }>();
+      ganttTasks.forEach((t) => {
+        if (!t?.id || !t?.start || !t?.end) return;
+        infoById.set(String(t.id), { start: String(t.start), end: String(t.end) });
       });
+      hoverInfoByIdRef.current = infoById;
 
-      if (anyVisible) return;
+      const wrappers = svg.querySelectorAll<SVGGElement>('.bar-wrapper:not(.gantt-dummy-row)');
+      wrappers.forEach((wrapper) => {
+        const id = wrapper.getAttribute('data-id');
+        if (!id) return;
+        const info = infoById.get(id);
+        if (!info) return;
 
-      const mainSvg = svg;
-      const directChildren = Array.from(mainSvg.children).filter(
-        (el): el is SVGGElement => (el as any).tagName?.toLowerCase?.() === 'g'
-      );
-      directChildren.forEach((g) => {
-        const base = g.getAttribute('data-sl-base-transform');
-        if (base !== null) {
-          g.setAttribute('transform', base);
-        } else {
-          g.removeAttribute('transform');
+        let title = wrapper.querySelector('title.sl-hover-dates') as SVGTitleElement | null;
+        if (!title) {
+          title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+          title.setAttribute('class', 'sl-hover-dates');
+          wrapper.insertBefore(title, wrapper.firstChild);
         }
-        g.removeAttribute('data-sl-shift-injected');
+        const startText = formatHoverDate(info.start);
+        const endText = formatHoverDate(info.end);
+        title.textContent = `${startText} → ${endText}`;
       });
+    };
+
+    const attachHoverTooltip = () => {
+      hoverListenersCleanupRef.current?.();
+      hoverListenersCleanupRef.current = null;
+      lastHoverIdRef.current = null;
+      setHoverBarTooltip(null);
+
+      const svg = ganttRef.current?.querySelector('svg') as SVGSVGElement | null;
+      const host = ganttBodyScrollRef.current;
+      if (!svg || !host) return;
+
+      const onMove = (e: MouseEvent) => {
+        const target = e.target as Element | null;
+        const wrapper = (target?.closest?.('.bar-wrapper:not(.gantt-dummy-row)') as SVGGElement | null) ?? null;
+        if (!wrapper) {
+          if (lastHoverIdRef.current !== null) {
+            lastHoverIdRef.current = null;
+            setHoverBarTooltip(null);
+          }
+          return;
+        }
+
+        const id = wrapper.getAttribute('data-id');
+        if (!id) return;
+        const info = hoverInfoByIdRef.current?.get(id);
+        if (!info) return;
+
+        const barEl = (wrapper.querySelector('.bar') as SVGGraphicsElement | null) ?? wrapper;
+        const barRect = (barEl as any).getBoundingClientRect?.();
+        const hostRect = host.getBoundingClientRect();
+        if (!barRect || !hostRect) return;
+
+        const startText = formatHoverDate(info.start);
+        const endText = formatHoverDate(info.end);
+        const text = `${startText} → ${endText}`;
+
+        const left = barRect.left - hostRect.left + barRect.width / 2;
+        const top = barRect.top - hostRect.top;
+
+        if (lastHoverIdRef.current !== id) {
+          lastHoverIdRef.current = id;
+          setHoverBarTooltip({ left, top, text });
+          return;
+        }
+
+        setHoverBarTooltip((prev) => {
+          if (!prev) return { left, top, text };
+          const dl = Math.abs(prev.left - left);
+          const dt = Math.abs(prev.top - top);
+          if (prev.text === text && dl < 0.5 && dt < 0.5) return prev;
+          return { left, top, text };
+        });
+      };
+
+      const onLeave = () => {
+        lastHoverIdRef.current = null;
+        setHoverBarTooltip(null);
+      };
+
+      svg.addEventListener('mousemove', onMove, { passive: true });
+      svg.addEventListener('mouseleave', onLeave, { passive: true });
+
+      hoverListenersCleanupRef.current = () => {
+        svg.removeEventListener('mousemove', onMove as any);
+        svg.removeEventListener('mouseleave', onLeave as any);
+      };
     };
 
     try {
@@ -911,6 +1004,7 @@ const GanttChart: React.FC = () => {
       if (ganttInstance.current) {
         ganttInstance.current.refresh(ganttTasks);
         ganttInstance.current.change_view_mode(project.settings.viewMode);
+        decorateHoverDates();
       } else {
         ganttInstance.current = new Gantt(ganttRef.current, ganttTasks, {
           header_height: HEADER_HEIGHT,
@@ -940,6 +1034,7 @@ const GanttChart: React.FC = () => {
             console.log('Task clicked:', task);
           }
         });
+        decorateHoverDates();
       }
 
       lastTaskIdsHashRef.current = nextTaskIdsHash;
@@ -995,17 +1090,21 @@ const GanttChart: React.FC = () => {
           onInnerScroll();
         }
 
+        const svg = ganttRef.current?.querySelector('svg') as SVGSVGElement | null;
+        if (svg) applyBodyShift(svg);
+
         rebuildStickyHeader();
         decorateTimelineBands();
         decorateTodayIndicator();
         decorateSummaryBars();
         decorateMilestones();
         decorateTaskLabels();
-        ensureBarsVisible();
+        decorateHoverDates();
+        attachHoverTooltip();
 
-        const svg = ganttRef.current?.querySelector('svg') as SVGSVGElement | null;
-        if (svg) {
-          svg.setAttribute('data-view-mode', project.settings.viewMode);
+        const svg2 = ganttRef.current?.querySelector('svg') as SVGSVGElement | null;
+        if (svg2) {
+          svg2.setAttribute('data-view-mode', project.settings.viewMode);
 
           headerMutationObserverRef.current?.disconnect();
           if (headerSyncRafRef.current) {
@@ -1029,7 +1128,7 @@ const GanttChart: React.FC = () => {
               break;
             }
           });
-          headerObserver.observe(svg, { subtree: true, childList: true });
+          headerObserver.observe(svg2, { subtree: true, childList: true });
           headerMutationObserverRef.current = headerObserver;
 
           barMutationObserverRef.current?.disconnect();
@@ -1070,7 +1169,7 @@ const GanttChart: React.FC = () => {
               });
             });
           });
-          observer.observe(svg, {
+          observer.observe(svg2, {
             subtree: true,
             attributes: true,
             attributeFilter: ['x', 'y', 'width', 'height'],
@@ -1168,9 +1267,11 @@ const GanttChart: React.FC = () => {
       
       /* Style normal task bars based on phase colors */
       ${project.phases.map(phaseId => `
-        .gantt-task-${phaseId} .bar { fill: ${phases[phaseId]?.color || '#3b82f6'}; }
-        .gantt-task-${phaseId} .bar-progress { fill: rgba(0,0,0,0.12); }
-        .gantt-task-${phaseId} .bar-label { fill: #111827; font-weight: 600; font-size: 11px; }
+        .gantt .bar-wrapper.gantt-task-${phaseId}:not(.gantt-summary):not(.gantt-dummy-row):not(.gantt-subtask-row) .bar { fill: ${phases[phaseId]?.color || '#3b82f6'}; }
+        .gantt .bar-wrapper.gantt-task-${phaseId}:not(.gantt-summary):not(.gantt-dummy-row):not(.gantt-subtask-row) .bar-progress { fill: rgba(0,0,0,0.12); }
+        .gantt .bar-wrapper.gantt-task-${phaseId}:not(.gantt-summary):not(.gantt-dummy-row) .bar-label { fill: #111827; font-weight: 600; font-size: 11px; }
+        .gantt .bar-wrapper.gantt-summary.gantt-task-${phaseId} .summary-bar-main { fill: ${phases[phaseId]?.color || '#1f2937'}; }
+        .gantt .bar-wrapper.gantt-summary.gantt-task-${phaseId} .summary-bar-cap { stroke: ${phases[phaseId]?.color || '#1f2937'}; }
       `).join('\n')}
 
       .gantt-summary .summary-bar-main { fill: #1f2937; }
@@ -1184,6 +1285,9 @@ const GanttChart: React.FC = () => {
       .gantt-task-completed .bar-progress { fill: rgba(0,0,0,0.12) !important; }
       .gantt-task-completed .bar-label { fill: #064e3b !important; }
       .gantt-task-completed .task-label-outside { fill: #064e3b !important; }
+
+      .gantt .bar-wrapper.gantt-subtask-row:not(.gantt-task-completed):not(.gantt-dummy-row) .bar { fill: #64748b; }
+      .gantt .bar-wrapper.gantt-subtask-row:not(.gantt-task-completed):not(.gantt-dummy-row) .bar-progress { fill: rgba(0,0,0,0.12); }
     `;
 
   }, [project, phases, tasks, updateTask, expandedTasks]);
@@ -1200,7 +1304,21 @@ const GanttChart: React.FC = () => {
     <div className="flex-1 bg-white relative border-l border-gray-100 h-full flex flex-col overflow-hidden">
       {panelTopSpacerPx > 0 && <div style={{ height: `${panelTopSpacerPx}px` }} />}
       <div ref={ganttHeaderRef} className="sticky top-0 z-20 bg-white border-b border-gray-100" style={{ height: `${HEADER_HEIGHT}px`, overflow: 'hidden' }} />
-      <div ref={ganttBodyScrollRef} className="flex-1 overflow-hidden gantt-scroll-container gantt-body-scroll-container">
+      <div ref={ganttBodyScrollRef} className="flex-1 overflow-hidden relative gantt-scroll-container gantt-body-scroll-container">
+        {hoverBarTooltip && (
+          <div
+            className="absolute z-30 pointer-events-none"
+            style={{
+              left: `${hoverBarTooltip.left}px`,
+              top: `${hoverBarTooltip.top}px`,
+              transform: 'translate(-50%, -110%)',
+            }}
+          >
+            <div className="px-2 py-1 rounded bg-slate-900 text-white text-[11px] font-semibold shadow-sm whitespace-nowrap">
+              {hoverBarTooltip.text}
+            </div>
+          </div>
+        )}
         <div ref={ganttRef} className="w-full h-full" />
       </div>
       
